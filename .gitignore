@@ -1,0 +1,15 @@
+# RStudio / R session files (personal, machine-specific)
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user
+
+# Rendered output (regenerate from report_1.qmd / app.R)
+*_files/
+.quarto/
+.DS_Store
+Thumbs.db
+
+# Raw World Bank microdata (download from the World Bank Microdata Library; see README)
+KEN_*_STEP-*_CSV.zip

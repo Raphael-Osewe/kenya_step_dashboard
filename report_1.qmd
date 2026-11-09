@@ -1,0 +1,725 @@
+---
+title: "Kenya STEP Skills Dashboard: An Interactive Analysis of Skills, Employment and Earnings in Urban Kenya"
+subtitle: "STA — Data Visualisation and Interactive Analytics Project"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Table of Contents"
+    toc-location: left
+    number-sections: true
+    theme: darkly
+    highlight-style: dracula
+    embed-resources: true
+    smooth-scroll: true
+    code-fold: true
+    code-tools: true
+    fig-width: 9
+    fig-height: 5
+    fig-align: center
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    geometry: margin=2.5cm
+    fontsize: 11pt
+authors:
+  - name: "OSEWE RAPHAEL"
+    note: "Admission No: STA3/6170/2023"
+  - name: "STEPHEN MARIGA"
+    note: "Admission No:STA3/4196/2023 "
+  - name: "SUMEIYA DIME "
+    note: "Admission No: SAC3/6562/2023 "
+abstract: |
+  This report presents the development of an interactive Shiny dashboard for 
+  analysing the World Bank STEP (Skills Toward Employability and Productivity) 
+  datasets for Kenya. Two complementary surveys are used: the STEP Household 
+  Survey (2013, n = 3,894) and the STEP Employer Survey (2016, n = 504), both 
+  covering urban Kenya. The dashboard comprises five interactive tabs addressing 
+  labour market overview, skills supply, skills demand, the skills gap, and 
+  earnings analysis. Key findings include a 29.4% unemployment rate among active 
+  workers, a 58.2% informality rate, a 46.2% technical skills gap reported by 
+  employers, and a stark wage premium from university education ($10.50/hr) 
+  relative to primary-level workers ($1.07/hr). The platform enables 
+  policymakers, researchers, and training institutions to explore Kenya's 
+  labour market interactively and identify priority intervention areas.
+keywords: [Kenya, STEP survey, skills gap, labour market, Shiny dashboard, interactive visualisation]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+# Load libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(knitr)
+library(kableExtra)
+
+# Load cleaned data
+emp <- read.csv("emp_clean.csv", stringsAsFactors = FALSE)
+hh  <- read.csv("hh_clean.csv",  stringsAsFactors = FALSE)
+
+# Ordered factors
+educ_levels <- c("None","Primary","Junior Sec","Secondary","Tertiary","University+")
+hh$educ_group <- factor(hh$educ_group, levels = educ_levels, ordered = TRUE)
+size_levels   <- c("Micro(<10)","Small(10-50)","Medium(50-200)","Large(200+)")
+emp$size_cat  <- factor(emp$size_cat, levels = size_levels, ordered = TRUE)
+
+# Shared dark theme for all ggplots
+theme_step <- function() {
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.background  = element_rect(fill = "#1e293b", color = NA),
+    panel.background = element_rect(fill = "#1e293b", color = NA),
+    panel.grid.major = element_line(color = "#334155", linewidth = 0.4),
+    panel.grid.minor = element_blank(),
+    axis.text        = element_text(color = "#94a3b8"),
+    axis.title       = element_text(color = "#e2e8f0", size = 10),
+    plot.title       = element_text(color = "#e2e8f0", size = 12, face = "bold"),
+    plot.subtitle    = element_text(color = "#94a3b8", size = 9),
+    legend.background= element_rect(fill = "#1e293b", color = NA),
+    legend.text      = element_text(color = "#94a3b8"),
+    legend.title     = element_text(color = "#e2e8f0"),
+    strip.text       = element_text(color = "#e2e8f0"),
+    plot.caption     = element_text(color = "#64748b", size = 8)
+  )
+}
+
+pal <- c("#38bdf8","#f472b6","#4ade80","#fb923c","#818cf8","#fbbf24","#f87171","#2dd4bf")
+```
+
+------------------------------------------------------------------------
+
+::: callout-note
+## Group Contribution Statement
+
+| Author             | Admission Number | Contribution |
+|--------------------|------------------|--------------|
+| **OSEWE RAPHAEL**  | STA3/6170/2023   | 33%          |
+| **STEPHEN MARIGA** | STA3/4196/2023   | 33%          |
+| **SUMEIYA DIME**   | SAC3/6562/2023   | 33%          |
+
+Both group members contributed equally to data preparation, dashboard development, and report writing.
+:::
+
+------------------------------------------------------------------------
+
+# Introduction
+
+## Background
+
+Kenya, like many sub-Saharan African economies, faces a persistent paradox in its labour market: employers report difficulty finding suitably skilled workers, while simultaneously unemployment — particularly among youth — remains alarmingly high. This disconnect between the skills workers possess and the skills employers demand is commonly referred to as the **skills mismatch problem**, and it represents one of the most critical barriers to economic development in the region.
+
+The World Bank's **Skills Toward Employability and Productivity (STEP)** programme was designed precisely to quantify this problem. STEP surveys measure skills from both sides of the labour market: the **supply side** (workers and households) and the **demand side** (employers and firms). Kenya is one of a small number of African countries with both a STEP Household Survey and a STEP Employer Survey, making it uniquely suited for this kind of cross-survey analysis.
+
+## Project Objectives
+
+This project aims to:
+
+1.  Acquire and prepare the Kenya STEP datasets for analytical use
+2.  Develop an **interactive Shiny dashboard** that allows users to explore Kenya's labour market dynamically
+3.  Identify and communicate key findings about skills supply, skills demand, and the resulting gap
+4.  Provide an analytical platform that is contextually relevant to the Kenyan and East African setting
+
+## Report Structure
+
+This report proceeds as follows: Section 2 describes the datasets; Section 3 presents the methodology and dashboard architecture; Sections 4–8 present findings from each dashboard tab; Section 9 discusses policy implications; and Section 10 concludes.
+
+------------------------------------------------------------------------
+
+# Data Description
+
+## Dataset 1: STEP Household Survey (2013)
+
+```{r hh-summary-table}
+hh_summary <- data.frame(
+  Attribute = c("Survey Name", "Country", "Year", "Coverage",
+                "Sample Size", "Unit of Analysis", "Key Themes", "Source"),
+  Details   = c(
+    "STEP Household Survey",
+    "Kenya",
+    "2013",
+    "Urban areas across all major regions",
+    "3,894 respondents (2,041 male, 1,853 female)",
+    "Working-age individuals (15–64 years)",
+    "Education, employment, wages, literacy, socio-emotional skills",
+    "World Bank Microdata Library — Catalog No. 2226"
+  )
+)
+
+kable(hh_summary, col.names = c("Attribute","Details"),
+      caption = "Table 1: STEP Household Survey Overview") |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 12) |>
+  column_spec(1, bold = TRUE, color = "#38bdf8")
+```
+
+The household survey collects data on **3,894 urban Kenyan workers** across 78 districts. It covers the full spectrum of labour market outcomes — from unemployment and informality to cognitive test scores, literacy levels, and the Big-5 personality traits. Crucially, it records hourly earnings in both Kenyan shillings and USD, enabling cross-country comparisons.
+
+### Key Variables (Household Survey)
+
+```{r hh-vars-table}
+hh_vars <- data.frame(
+  Variable = c("gender_label","age","educ_group","emp_status",
+               "earnings_h_usd","literacy_pct","has_training",
+               "read_label","extraversion_av","grit_av"),
+  Type     = c("Categorical","Continuous","Ordered Factor","Categorical",
+               "Continuous","Continuous","Binary",
+               "Ordered Factor","Continuous","Continuous"),
+  Description = c(
+    "Male / Female",
+    "Age in years (range: 15–64)",
+    "Education bracket: None to University+",
+    "Wage Worker / Informal Wage / Unemployed / Inactive",
+    "Hourly earnings in USD (median = $1.63)",
+    "ETS literacy test score as % of maximum (36 items)",
+    "1 = received vocational or skills training",
+    "Literacy level: Cannot Read → Full Passage",
+    "Extraversion personality score (scale 1–4)",
+    "Grit score — perseverance & consistency (scale 1–4)"
+  )
+)
+
+kable(hh_vars, col.names = c("Variable","Type","Description"),
+      caption = "Table 2: Key Variables — Household Survey") |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), font_size = 11) |>
+  column_spec(1, monospace = TRUE, color = "#4ade80")
+```
+
+## Dataset 2: STEP Employer Survey (2016)
+
+```{r emp-summary-table}
+emp_summary <- data.frame(
+  Attribute = c("Survey Name","Country","Year","Coverage",
+                "Sample Size","Unit of Analysis","Key Themes","Source"),
+  Details   = c(
+    "STEP Employer Survey",
+    "Kenya",
+    "2016",
+    "13 urban areas including Nairobi, Mombasa, Kisumu, Nakuru",
+    "504 firms across 18 industry sectors",
+    "Formal and semi-formal enterprises",
+    "Skills demand, hiring difficulties, training, vacancies, productivity",
+    "World Bank Microdata Library — Catalog No. 2996"
+  )
+)
+
+kable(emp_summary, col.names = c("Attribute","Details"),
+      caption = "Table 3: STEP Employer Survey Overview") |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 12) |>
+  column_spec(1, bold = TRUE, color = "#fb923c")
+```
+
+The employer survey covers **504 Kenyan firms** spanning micro-enterprises (fewer than 10 employees) to large corporations (200+ employees). It captures employers' perspectives on the skills their workers possess versus the skills they need — providing the demand-side counterpart to the household survey.
+
+### Key Variables (Employer Survey)
+
+```{r emp-vars-table}
+emp_vars <- data.frame(
+  Variable = c("sector_label","size_cat","city",
+               "diff_soft","diff_tech",
+               "provides_training","has_vacancies","productivity_up"),
+  Type     = c("Categorical","Ordered Factor","Categorical",
+               "Binary","Binary","Binary","Binary","Binary"),
+  Description = c(
+    "Industry sector (18 categories)",
+    "Firm size: Micro / Small / Medium / Large",
+    "Survey city (13 urban areas)",
+    "1 = firm reports difficulty finding soft-skilled workers",
+    "1 = firm reports difficulty finding technically skilled workers",
+    "1 = firm provides on-job or off-job training",
+    "1 = firm has unfilled vacancies",
+    "1 = firm reports productivity increased in past year"
+  )
+)
+
+kable(emp_vars, col.names = c("Variable","Type","Description"),
+      caption = "Table 4: Key Variables — Employer Survey") |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), font_size = 11) |>
+  column_spec(1, monospace = TRUE, color = "#fb923c")
+```
+
+## How the Two Datasets Relate
+
+The two surveys cannot be merged at the individual level — they sampled different populations. However, they share **common analytical dimensions** that allow comparative analysis:
+
+-   **Geography** — both cover urban Kenya with overlapping city/district coverage
+-   **Economic sector** — both capture the respondent's industry
+-   **Skill categories** — both measure similar skill types from opposite perspectives
+
+This complementarity is exploited in the **Skills Gap tab** of the dashboard, where supply-side worker characteristics are compared to demand-side employer requirements at the sector level.
+
+------------------------------------------------------------------------
+
+# Methodology and Dashboard Architecture
+
+## Technology Stack
+
+```{r tech-table}
+tech <- data.frame(
+  Component = c("Dashboard framework","Interactivity","Charts",
+                "Data tables","Styling","Data preparation","Language"),
+  Tool      = c("shinydashboard","Shiny (reactive programming)","plotly",
+                "DT (DataTables)","Custom CSS (dark theme)","dplyr + tidyr","R 4.x")
+)
+kable(tech, col.names = c("Component","Tool"),
+      caption = "Table 5: Technology Stack") |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE, font_size = 12)
+```
+
+## Data Preparation Pipeline
+
+The raw data preparation follows a structured pipeline implemented in `data_prep.R`:
+
+```         
+Raw ZIPs (World Bank)
+       ↓  unzip()
+Raw CSVs (KEN_Final ES Data.csv, STEP Kenya_working.csv)
+       ↓  read_csv()
+Raw R data frames
+       ↓  transmute() + recode() + case_when()
+Cleaned data frames (emp_clean, hh_clean)
+       ↓  write_csv()
+emp_clean.csv + hh_clean.csv
+       ↓  read.csv() in app.R
+Dashboard reactive datasets
+```
+
+Key recoding decisions made during preparation:
+
+-   **Education grouped** into six ordered brackets (None → University+) from continuous years-of-schooling variable
+-   **Employment status** derived from three binary flags: `wage_worker`, `informal_wage`, `unemployed`
+-   **Skill difficulty** recoded from Likert scale to binary (1 = difficulty, 0 = no difficulty)
+-   **Literacy score** expressed as percentage of 36-item ETS test maximum
+
+## Dashboard Structure
+
+The dashboard is organised into five thematic tabs, each driven by a specific research question:
+
+```{r dashboard-structure}
+tabs <- data.frame(
+  Tab = c("1. Overview","2. Skills Supply","3. Skills Demand",
+          "4. Skills Gap","5. Earnings Analysis"),
+  `Data Source` = c("Both","Household Survey","Employer Survey","Both","Household Survey"),
+  `Research Question` = c(
+    "What is the overall labour market picture in urban Kenya?",
+    "What skills and qualifications do Kenyan workers have?",
+    "What skills are Kenyan employers struggling to find?",
+    "Where is the mismatch between supply and demand most severe?",
+    "What determines wage levels and the gender pay gap?"
+  ),
+  `Key Charts` = c(
+    "KPI cards, employment pie, gender bars, firm sectors",
+    "Wage by education, literacy ranking, traits radar",
+    "Skill gap by sector, training provision, vacancies",
+    "Bubble chart, wage premium table, formal vs informal",
+    "Violin plots, occupation bars, gender wage gap lines"
+  )
+)
+
+kable(tabs, col.names = c("Tab","Data Source","Research Question","Key Charts"),
+      caption = "Table 6: Dashboard Tab Structure") |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), font_size = 10) |>
+  column_spec(1, bold = TRUE)
+```
+
+## Interactive Features
+
+The dashboard provides the following interactive controls:
+
+-   **Global sidebar filters**: Gender, age range (15–64), and education level — all household charts update reactively
+-   **Skill type toggle**: On the Skills Demand tab, users switch between soft-skill and technical-skill gaps
+-   **District literacy sorter**: Sort by highest or lowest performing districts; slider controls how many districts are shown
+-   **Earnings group explorer**: Users select any grouping variable (education, occupation, sector, gender) and the earnings quantile chart rebuilds
+
+------------------------------------------------------------------------
+
+# Tab 1: Overview — Labour Market Snapshot
+
+## Key Performance Indicators
+
+```{r kpi-table}
+# Compute KPIs
+active   <- hh |> filter(emp_status %in% c("Unemployed","Wage Worker","Informal Wage"))
+workers  <- hh |> filter(earnings_h_usd > 0, !is.na(earnings_h_usd))
+employed <- hh |> filter(emp_status %in% c("Wage Worker","Informal Wage"))
+
+kpis <- data.frame(
+  Indicator = c(
+    "Total workers surveyed (HH)", "Total firms surveyed",
+    "Unemployment rate (active workers)","Informality rate (employed workers)",
+    "Median hourly wage (USD)","Full literacy rate",
+    "Firms reporting technical skills gap","Firms providing worker training"
+  ),
+  Value = c(
+    format(nrow(hh), big.mark = ","),
+    nrow(emp),
+    paste0(round(mean(active$emp_status == "Unemployed") * 100, 1), "%"),
+    paste0(round(mean(employed$emp_status == "Informal Wage") * 100, 1), "%"),
+    paste0("$", round(median(workers$earnings_h_usd), 2)),
+    paste0(round(mean(hh$read_label == "Full Passage", na.rm = TRUE) * 100, 1), "%"),
+    paste0(round(mean(emp$diff_tech) * 100, 1), "%"),
+    paste0(round(mean(emp$provides_training) * 100, 1), "%")
+  ),
+  Source = c(rep("HH Survey",6), rep("Employer Survey",2))
+)
+
+kable(kpis, col.names = c("Indicator","Value","Source"),
+      caption = "Table 7: Dashboard Key Performance Indicators") |>
+  kable_styling(bootstrap_options = c("striped","hover"), font_size = 12) |>
+  column_spec(2, bold = TRUE, color = "#38bdf8") |>
+  row_spec(c(3,4), background = "#1e293b")
+```
+
+## Employment Status Distribution
+
+```{r emp-status-plot, fig.cap="Figure 1: Employment status distribution among surveyed urban Kenyan workers"}
+emp_status_d <- hh |> count(emp_status) |>
+  mutate(pct = round(n / sum(n) * 100, 1),
+         emp_status = factor(emp_status,
+           levels = c("Inactive","Unemployed","Informal Wage","Wage Worker")))
+
+ggplot(emp_status_d, aes(x = reorder(emp_status, n), y = n, fill = emp_status)) +
+  geom_col(width = 0.65, show.legend = FALSE) +
+  geom_text(aes(label = paste0(pct, "%\n(n=", n, ")")),
+            hjust = -0.1, color = "#e2e8f0", size = 3.5) +
+  scale_fill_manual(values = c(
+    "Inactive"     = "#94a3b8",
+    "Unemployed"   = "#f87171",
+    "Informal Wage"= "#fb923c",
+    "Wage Worker"  = "#38bdf8"
+  )) +
+  coord_flip(clip = "off") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  labs(title    = "Employment Status — Urban Kenya (HH Survey 2013)",
+       subtitle = "A majority of the sample is economically inactive or in informal employment",
+       x = NULL, y = "Number of Respondents",
+       caption = "Source: World Bank STEP Household Survey, Kenya 2013") +
+  theme_step()
+```
+
+The most striking finding from the overview is that **formal wage employment accounts for only 14.7% of the sample**. The largest single category is economic inactivity (50.2%), followed by informal wage employment (20.5%) and unemployment (14.7%). Together, unemployment and informality affect a substantial majority of economically active urban Kenyans.
+
+## Employment by Gender
+
+```{r gender-emp-plot, fig.cap="Figure 2: Employment status by gender, showing percentage within each gender group"}
+gender_emp <- hh |>
+  group_by(gender_label, emp_status) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(gender_label) |>
+  mutate(pct = round(n / sum(n) * 100, 1))
+
+ggplot(gender_emp, aes(x = gender_label, y = pct,
+                        fill = factor(emp_status,
+                          levels = c("Inactive","Unemployed","Informal Wage","Wage Worker")))) +
+  geom_col(position = "fill", width = 0.55) +
+  geom_text(aes(label = paste0(pct, "%")),
+            position = position_fill(vjust = 0.5),
+            color = "white", size = 3.5, fontface = "bold") +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_manual(
+    name   = "Status",
+    values = c("Inactive"     = "#64748b",
+               "Unemployed"   = "#f87171",
+               "Informal Wage"= "#fb923c",
+               "Wage Worker"  = "#38bdf8")) +
+  labs(title    = "Employment Status by Gender",
+       subtitle = "Women are more likely to be inactive; men more likely to be unemployed",
+       x = NULL, y = "Share within gender group",
+       caption = "Source: World Bank STEP Household Survey, Kenya 2013") +
+  theme_step()
+```
+
+------------------------------------------------------------------------
+
+# Tab 2: Skills Supply — What Workers Bring
+
+## Wages by Education Level
+
+```{r wage-educ-plot, fig.cap="Figure 3: Median hourly earnings (USD) by education level — a clear wage premium emerges at tertiary and university levels"}
+wage_educ <- hh |>
+  filter(!is.na(earnings_h_usd), earnings_h_usd > 0, !is.na(educ_group)) |>
+  group_by(educ_group) |>
+  summarise(median_wage = round(median(earnings_h_usd), 2),
+            n           = n(), .groups = "drop")
+
+ggplot(wage_educ, aes(x = educ_group, y = median_wage, group = 1)) +
+  geom_line(color = "#38bdf8", linewidth = 1.5) +
+  geom_point(aes(size = n), color = "#38bdf8", alpha = 0.9) +
+  geom_text(aes(label = paste0("$", median_wage)),
+            vjust = -1.3, color = "#e2e8f0", size = 3.5) +
+  scale_size_continuous(range = c(4, 12), name = "n workers") +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(title    = "Median Hourly Earnings by Education Level",
+       subtitle = "Wage premium accelerates sharply from Tertiary onwards",
+       x = "Education Level", y = "Median USD per hour",
+       caption = "Source: World Bank STEP Household Survey, Kenya 2013") +
+  theme_step()
+```
+
+There is a **clear and steep wage gradient** by education in urban Kenya. Workers with only primary education earn a median of **\$1.07 per hour**, while university graduates earn **\$10.50 per hour** — nearly ten times as much. Importantly, the wage premium is modest between primary and secondary levels, then jumps sharply at tertiary and university levels, suggesting that **post-secondary credentials carry a substantial labour market premium** in Kenya's urban economy.
+
+## Literacy Performance by District
+
+```{r literacy-plot, fig.cap="Figure 4: Mean literacy scores (% of ETS maximum) across selected Kenyan districts, coloured by performance tier"}
+lit_district <- hh |>
+  group_by(district_clean) |>
+  summarise(mean_lit = round(mean(literacy_pct, na.rm = TRUE), 1),
+            n = n(), .groups = "drop") |>
+  filter(n >= 15) |>
+  arrange(desc(mean_lit)) |>
+  head(30) |>
+  mutate(tier = case_when(
+    mean_lit >= 90 ~ "High (≥90%)",
+    mean_lit >= 75 ~ "Medium (75–90%)",
+    TRUE           ~ "Low (<75%)"
+  ))
+
+ggplot(lit_district, aes(x = mean_lit, y = reorder(district_clean, mean_lit), fill = tier)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = paste0(mean_lit, "%")), hjust = -0.2,
+            color = "#e2e8f0", size = 3) +
+  scale_fill_manual(name = "Performance Tier",
+                    values = c("High (≥90%)"    = "#4ade80",
+                               "Medium (75–90%)"= "#fbbf24",
+                               "Low (<75%)"     = "#f87171")) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(title    = "Literacy Scores by District — Top 30 Districts",
+       subtitle = "Bungoma East leads (99.4%); geographic gaps are substantial",
+       x = "Mean Literacy Score (% of max)", y = NULL,
+       caption = "Source: World Bank STEP Household Survey, Kenya 2013 | Districts with n≥15 shown") +
+  theme_step() +
+  theme(axis.text.y = element_text(size = 8))
+```
+
+------------------------------------------------------------------------
+
+# Tab 3: Skills Demand — What Employers Need
+
+## Technical Skills Gap by Sector
+
+```{r skill-gap-sector, fig.cap="Figure 5: Percentage of firms in each sector reporting difficulty finding technically skilled workers"}
+skill_sec <- emp |>
+  group_by(sector_label) |>
+  summarise(pct_tech = round(mean(diff_tech) * 100, 1),
+            pct_soft = round(mean(diff_soft) * 100, 1),
+            n        = n(), .groups = "drop") |>
+  arrange(desc(pct_tech))
+
+ggplot(skill_sec, aes(x = pct_tech, y = reorder(sector_label, pct_tech))) +
+  geom_col(aes(fill = pct_tech), width = 0.7, show.legend = FALSE) +
+  geom_text(aes(label = paste0(pct_tech, "%")), hjust = -0.15,
+            color = "#e2e8f0", size = 3) +
+  scale_fill_gradient(low = "#fbbf24", high = "#f87171") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(title    = "Firms Reporting Technical Skills Shortage by Sector",
+       subtitle = "Overall: 46.2% of firms struggle to find technically skilled workers",
+       x = "% of Firms Reporting Difficulty", y = NULL,
+       caption = "Source: World Bank STEP Employer Survey, Kenya 2016") +
+  theme_step()
+```
+
+## Training Provision by Firm Size
+
+```{r training-size-plot, fig.cap="Figure 6: Percentage of firms providing worker training, by firm size category"}
+train_sz <- emp |>
+  mutate(size_cat = factor(size_cat, levels = size_levels)) |>
+  group_by(size_cat) |>
+  summarise(pct = round(mean(provides_training) * 100, 1),
+            n   = n(), .groups = "drop")
+
+ggplot(train_sz, aes(x = size_cat, y = pct, fill = size_cat)) +
+  geom_col(width = 0.55, show.legend = FALSE) +
+  geom_text(aes(label = paste0(pct, "%\n(n=", n, ")")),
+            vjust = -0.5, color = "#e2e8f0", size = 3.8) +
+  scale_fill_manual(values = c("#2dd4bf","#38bdf8","#818cf8","#f472b6")) +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(title    = "Training Provision by Firm Size",
+       subtitle = "Training rates are consistently high across all firm sizes",
+       x = "Firm Size Category", y = "% of Firms Providing Training",
+       caption = "Source: World Bank STEP Employer Survey, Kenya 2016") +
+  theme_step()
+```
+
+A notably counter-intuitive finding is that **training provision does not strongly differ by firm size**. Even micro-enterprises (fewer than 10 employees) provide training at rates comparable to large firms. This suggests that the **persistent skills gap is a structural problem** — not simply a result of small firms being unable to afford training — and may reflect misalignment between training content and employer needs.
+
+------------------------------------------------------------------------
+
+# Tab 4: Skills Gap — Supply Meets Demand
+
+## Formal vs. Informal Wage Comparison
+
+```{r formal-informal-plot, fig.cap="Figure 7: Median hourly wages comparing formal wage workers and informal wage workers by sector"}
+formal_d <- hh |>
+  filter(emp_status %in% c("Wage Worker","Informal Wage"),
+         !is.na(earnings_h_usd), earnings_h_usd > 0,
+         sector_label != "Unknown") |>
+  group_by(sector_label, emp_status) |>
+  summarise(median_wage = round(median(earnings_h_usd), 2), .groups = "drop")
+
+ggplot(formal_d, aes(x = sector_label, y = median_wage, fill = emp_status)) +
+  geom_col(position = "dodge", width = 0.65) +
+  geom_text(aes(label = paste0("$", median_wage)),
+            position = position_dodge(width = 0.65),
+            vjust = -0.5, color = "#e2e8f0", size = 3) +
+  scale_fill_manual(name   = "Employment Type",
+                    values = c("Wage Worker"   = "#38bdf8",
+                               "Informal Wage" = "#fb923c")) +
+  scale_y_continuous(labels = dollar_format(), limits = c(0, 6)) +
+  labs(title    = "Formal vs Informal Median Wages by Sector",
+       subtitle = "Formal workers consistently earn more; the gap is largest in Services",
+       x = NULL, y = "Median Hourly Wage (USD)",
+       caption = "Source: World Bank STEP Household Survey, Kenya 2013") +
+  theme_step() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+## Education–Skills–Employment Summary
+
+```{r gap-table}
+gap_tbl <- hh |>
+  filter(!is.na(educ_group)) |>
+  group_by(educ_group) |>
+  summarise(
+    N                   = n(),
+    `Employment %`      = round(mean(emp_status %in% c("Wage Worker","Informal Wage")) * 100, 1),
+    `Formal Work %`     = round(mean(emp_status == "Wage Worker") * 100, 1),
+    `Median Wage (USD/hr)` = round(median(earnings_h_usd[earnings_h_usd > 0], na.rm = TRUE), 2),
+    `Training %`        = round(mean(has_training, na.rm = TRUE) * 100, 1),
+    `Literacy %`        = round(mean(literacy_pct, na.rm = TRUE), 1),
+    .groups = "drop"
+  ) |>
+  arrange(educ_group)
+
+kable(gap_tbl,
+      caption = "Table 8: Education Level vs Key Labour Market Outcomes") |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), font_size = 11) |>
+  column_spec(5, bold = TRUE, color = "#38bdf8") |>
+  column_spec(7, color = "#4ade80")
+```
+
+Table 8 is among the most informative outputs of the entire analysis. It reveals that:
+
+-   Workers without formal schooling have a **0% formal employment rate** — every employed person in this group is in informal work
+-   **Formal employment rises steeply** from 4.9% at primary level to an estimated majority at university level
+-   **Literacy closely tracks education** but does not perfectly predict wages — suggesting other factors (soft skills, social capital, sector) also matter
+-   **Training is lowest** precisely among the groups who need it most — workers with no schooling receive training at only 0.7%
+
+------------------------------------------------------------------------
+
+# Tab 5: Earnings Analysis
+
+## Gender Wage Gap
+
+```{r gender-wage-plot, fig.cap="Figure 8: Median hourly wages by education level and gender, illustrating the persistent gender wage gap"}
+earn_eg <- hh |>
+  filter(!is.na(earnings_h_usd), earnings_h_usd > 0, !is.na(educ_group)) |>
+  group_by(educ_group, gender_label) |>
+  summarise(median_wage = round(median(earnings_h_usd), 2), .groups = "drop")
+
+ggplot(earn_eg, aes(x = educ_group, y = median_wage,
+                     color = gender_label, group = gender_label)) +
+  geom_line(linewidth = 1.8) +
+  geom_point(size = 5) +
+  geom_text(aes(label = paste0("$", median_wage)),
+            vjust = -1.2, size = 3.2, fontface = "bold") +
+  scale_color_manual(name   = "Gender",
+                     values = c("Male" = "#38bdf8", "Female" = "#f472b6")) +
+  scale_y_continuous(labels = dollar_format(), limits = c(0, 14)) +
+  labs(title    = "Median Hourly Wages by Education Level and Gender",
+       subtitle = "The gender gap widens dramatically at university level",
+       x = "Education Level", y = "Median USD per Hour",
+       caption = "Source: World Bank STEP Household Survey, Kenya 2013") +
+  theme_step() +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+The gender wage gap in urban Kenya is **not uniform across education levels**. At primary and junior secondary levels, male and female wages are relatively similar. However, the gap **widens substantially at the university level**, where male graduates earn considerably more than female graduates with the same qualifications. This is consistent with occupational segregation — whereby male university graduates are more concentrated in high-paying sectors (finance, ICT, professional services) than female graduates.
+
+## Wages by Occupation
+
+```{r occ-wage-plot, fig.cap="Figure 9: Median hourly wage by occupation category with interquartile range bars"}
+occ_wage <- hh |>
+  filter(!is.na(earnings_h_usd), earnings_h_usd > 0, !is.na(occ_label)) |>
+  group_by(occ_label) |>
+  summarise(median = round(median(earnings_h_usd), 2),
+            q25    = round(quantile(earnings_h_usd, 0.25), 2),
+            q75    = round(quantile(earnings_h_usd, 0.75), 2),
+            n      = n(), .groups = "drop") |>
+  arrange(median)
+
+ggplot(occ_wage, aes(x = median, y = reorder(occ_label, median))) +
+  geom_segment(aes(x = q25, xend = q75, yend = occ_label),
+               color = "#334155", linewidth = 3, alpha = 0.8) +
+  geom_point(aes(size = n), color = "#818cf8", alpha = 0.95) +
+  geom_text(aes(label = paste0("$", median)), hjust = -0.6,
+            color = "#e2e8f0", size = 3.2) +
+  scale_size_continuous(range = c(3, 10), name = "n workers") +
+  scale_x_continuous(labels = dollar_format(),
+                     expand = expansion(mult = c(0, 0.3))) +
+  labs(title    = "Hourly Wages by Occupation (Median + IQR)",
+       subtitle = "Managers and Professionals earn 5–10× more than Elementary workers",
+       x = "Hourly Wage (USD) — bar shows interquartile range",
+       y = NULL,
+       caption = "Source: World Bank STEP Household Survey, Kenya 2013") +
+  theme_step()
+```
+
+------------------------------------------------------------------------
+
+# Key Findings and Discussion
+
+## Summary of Findings
+
+Drawing together evidence across all five dashboard tabs, the following key findings emerge:
+
+**1. Informality dominates urban Kenya's labour market.** With 58.2% of employed workers in informal arrangements and only 14.7% in formal wage employment, the informal sector is the primary absorber of urban labour. This has significant implications for social protection, tax revenue, and skills development.
+
+**2. Education generates substantial but non-linear wage returns.** The wage premium is modest between primary and secondary education but accelerates sharply at tertiary and university levels. A university graduate earns approximately 9.8 times the hourly wage of a primary-educated worker. This finding underscores the economic imperative of expanding access to post-secondary education in Kenya.
+
+**3. A persistent technical skills gap afflicts Kenyan employers.** 46.2% of firms report difficulty finding technically skilled workers, and 63.5% have unfilled vacancies. This gap exists despite 79.6% of firms providing training — indicating that the skills mismatch is structural and cannot be resolved by employer training alone.
+
+**4. The gender wage gap is education-dependent.** The gap is small at lower education levels but expands significantly at the university level. This pattern points to occupational segregation rather than direct wage discrimination as the primary mechanism.
+
+**5. Geographic inequality in literacy is stark.** A 47-percentage-point gap in mean literacy scores separates the highest-performing district (Bungoma East, 99.4%) from the lowest-performing (Githunguri, 52.0%). This variation likely reflects differences in school quality, teacher availability, and household income across districts.
+
+## Policy Implications
+
+Based on the dashboard's findings, the following policy recommendations are warranted:
+
+-   **Expand TVET (Technical and Vocational Education and Training)** in sectors with the highest skills gaps — particularly Utilities, Water/Sanitation, and Hotels & Food
+-   **Target female workers** for tertiary education support and occupational mobility programmes to close the upper-education wage gap
+-   **Formalisation incentives** for informal workers, especially in Trade/Commerce and Services where the informal-formal wage differential is largest
+-   **District-level literacy interventions** prioritising the bottom quartile of districts identified in the dashboard's geographic literacy analysis
+
+------------------------------------------------------------------------
+
+# Conclusion
+
+This project successfully developed a five-tab interactive Shiny dashboard integrating the World Bank STEP Household and Employer Surveys for Kenya. The platform provides a comprehensive, filterable view of Kenya's urban labour market — enabling users to explore employment patterns, skills supply and demand, geographic disparities, and earnings dynamics interactively.
+
+The dashboard reveals a labour market characterised by high informality, significant skills mismatches, steep returns to post-secondary education, and persistent gender inequality in earnings. These findings are directly relevant to the Kenyan and East African development context and demonstrate the value of combining supply-side and demand-side labour market data in a unified analytical platform.
+
+The interactive nature of the dashboard — powered by Shiny's reactive programming model — transforms static survey data into a dynamic policy analysis tool that researchers, policymakers, and training institutions can use to identify priority interventions and monitor labour market trends over time.
+
+------------------------------------------------------------------------
+
+::: callout-tip
+## Appendix: Running the Dashboard
+
+To reproduce this analysis, place `app.R`, `data_prep.R`, `install_packages.R`, and both World Bank ZIP files in the same RStudio project folder, then run:
+
+``` r
+source("install_packages.R")  # run once
+source("data_prep.R")          # run once
+shiny::runApp()                # launch dashboard
+```
+:::
